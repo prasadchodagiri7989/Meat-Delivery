@@ -1,370 +1,407 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useOrders } from '@/context/order-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
-import { Alert, Dimensions, Linking, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    Linking,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 
 const screenWidth = Dimensions.get('window').width;
 
-// Sample orders data
-const sampleOrders = [
-  {
-    id: 1,
-    orderNumber: '#ORD001',
-    customerName: 'John Doe',
-    address: '123 Main St, Apt 4B',
-    price: 250,
-    distance: 2.5,
-    status: 'in_progress',
-    date: '2025-11-11',
-    time: '2:30 PM',
-    rating: 0,
-    latitude: 40.7128,
-    longitude: -74.0060,
-  },
-  {
-    id: 2,
-    orderNumber: '#ORD002',
-    customerName: 'Sarah Smith',
-    address: '456 Oak Ave, Suite 200',
-    price: 380,
-    distance: 4.2,
-    status: 'in_progress',
-    date: '2025-11-11',
-    time: '1:15 PM',
-    rating: 0,
-    latitude: 40.7580,
-    longitude: -73.9855,
-  },
-  {
-    id: 3,
-    orderNumber: '#ORD003',
-    customerName: 'Mike Johnson',
-    address: '789 Pine Rd, Building C',
-    price: 180,
-    distance: 1.8,
-    status: 'delivered',
-    date: '2025-11-10',
-    time: '10:45 AM',
-    rating: 4.6,
-  },
-  {
-    id: 4,
-    orderNumber: '#ORD004',
-    customerName: 'Emma Wilson',
-    address: '321 Elm St, Floor 5',
-    price: 450,
-    distance: 5.1,
-    status: 'delivered',
-    date: '2025-11-09',
-    time: '3:20 PM',
-    rating: 4.8,
-  },
-  {
-    id: 5,
-    orderNumber: '#ORD005',
-    customerName: 'David Brown',
-    address: '654 Maple Ave, Near Park',
-    price: 320,
-    distance: 3.5,
-    status: 'pending',
-    date: '2025-11-09',
-    time: '11:30 AM',
-    rating: 0,
-  },
-  {
-    id: 6,
-    orderNumber: '#ORD006',
-    customerName: 'Lisa Anderson',
-    address: '987 Birch St, Downtown',
-    price: 280,
-    distance: 2.8,
-    status: 'cancelled',
-    date: '2025-11-08',
-    time: '4:00 PM',
-    rating: 0,
-  },
-  {
-    id: 7,
-    orderNumber: '#ORD007',
-    customerName: 'Robert Garcia',
-    address: '159 Cedar Ln, Midtown',
-    price: 520,
-    distance: 6.2,
-    status: 'delivered',
-    date: '2025-11-08',
-    time: '2:45 PM',
-    rating: 4.9,
-  },
-];
-
-const FILTER_OPTIONS = ['All', 'Delivered', 'Pending', 'Cancelled'];
+const FILTER_OPTIONS = ['All', 'out-for-delivery', 'delivered'];
 
 export default function MyOrdersScreen() {
-  const [selectedFilter, setSelectedFilter] = useState('All');
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const router = useRouter();
+  const { assignedOrders, isLoading, error, fetchAssignedOrders, markOutForDelivery, markDelivered } = useOrders();
+  const [selectedFilter, setSelectedFilter] = useState('All');
+  const [refreshing, setRefreshing] = useState(false);
+  const [actioningId, setActioningId] = useState<string | null>(null);
 
-  // Get in-progress orders
-  const inProgressOrders = useMemo(() => {
-    return sampleOrders.filter(order => order.status === 'in_progress');
+  // Fetch assigned orders on mount
+  useEffect(() => {
+    const loadOrders = async () => {
+      try {
+        await fetchAssignedOrders();
+      } catch (err) {
+        console.error('Error loading orders:', err);
+      }
+    };
+
+    loadOrders();
   }, []);
 
-  // Filter orders based on selected status
-  const filteredOrders = useMemo(() => {
-    const otherOrders = sampleOrders.filter(order => order.status !== 'in_progress');
-    
-    if (selectedFilter === 'All') {
-      return otherOrders;
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchAssignedOrders();
+    } catch (err) {
+      Alert.alert('Error', 'Failed to refresh orders');
+    } finally {
+      setRefreshing(false);
     }
-    return otherOrders.filter(
-      order => order.status.toLowerCase() === selectedFilter.toLowerCase()
-    );
-  }, [selectedFilter]);
+  };
+
+  // Filter orders based on selected status
+  const filteredOrders = assignedOrders.filter(order => {
+    if (selectedFilter === 'All') return true;
+    return order.status === selectedFilter;
+  });
 
   const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'delivered':
+    switch (status?.toLowerCase()) {
+      case 'out-for-delivery':
         return { bg: isDark ? '#1E3A1E' : '#E8F5E9', text: '#2E7D32' };
+      case 'delivered':
+        return { bg: isDark ? '#1E2A3A' : '#E3F2FD', text: '#1565C0' };
       case 'pending':
         return { bg: isDark ? '#3A3A1E' : '#FFF3E0', text: '#F57C00' };
-      case 'cancelled':
-        return { bg: isDark ? '#3A1E1E' : '#FFEBEE', text: '#D32F2F' };
       default:
         return { bg: isDark ? '#1F2937' : '#F3F4F6', text: '#6B7280' };
     }
   };
 
   const getStatusIcon = (status: string) => {
-    switch (status.toLowerCase()) {
+    switch (status?.toLowerCase()) {
+      case 'out-for-delivery':
+        return '🚚';
       case 'delivered':
         return '✓';
       case 'pending':
         return '⏳';
-      case 'cancelled':
-        return '✕';
       default:
         return '◦';
     }
   };
 
-  const handleStartRide = (lat: number, lon: number) => {
+  const formatStatus = (status: string) => {
+    return status?.replace(/_/g, ' ').charAt(0).toUpperCase() + status?.slice(1).replace(/_/g, ' ') || 'Unknown';
+  };
+
+  const handleStartDelivery = async (orderId: string) => {
+    Alert.alert(
+      'Start Delivery',
+      'Mark this order as out for delivery?',
+      [
+        {
+          text: 'Cancel',
+          onPress: () => {},
+          style: 'cancel',
+        },
+        {
+          text: 'Start',
+          onPress: async () => {
+            try {
+              setActioningId(orderId);
+              const success = await markOutForDelivery(orderId);
+              if (success) {
+                Alert.alert('Success', 'Order marked as out for delivery');
+                await fetchAssignedOrders();
+              } else {
+                Alert.alert('Error', 'Failed to update order status');
+              }
+            } catch (err) {
+              Alert.alert('Error', 'Failed to update order');
+              console.error('Mark out for delivery error:', err);
+            } finally {
+              setActioningId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMarkDelivered = async (orderId: string) => {
+    Alert.prompt(
+      'Complete Delivery',
+      'Enter the delivery OTP:',
+      [
+        {
+          text: 'Cancel',
+          onPress: () => {},
+          style: 'cancel',
+        },
+        {
+          text: 'Confirm',
+          onPress: async (otp: string | undefined) => {
+            if (!otp || otp.trim().length === 0) {
+              Alert.alert('Error', 'Please enter OTP');
+              return;
+            }
+            try {
+              setActioningId(orderId);
+              const success = await markDelivered(orderId, '', otp);
+              if (success) {
+                Alert.alert('Success', 'Order marked as delivered!');
+                await fetchAssignedOrders();
+              } else {
+                Alert.alert('Error', 'Failed to mark as delivered');
+              }
+            } catch (err) {
+              Alert.alert('Error', 'Failed to complete delivery');
+              console.error('Mark delivered error:', err);
+            } finally {
+              setActioningId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleOpenMaps = (lat: number, lon: number) => {
+    if (!lat || !lon) {
+      Alert.alert('Error', 'Location not available');
+      return;
+    }
     const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`;
-    
-    Linking.canOpenURL(url).then(supported => {
-      if (supported) {
-        Linking.openURL(url);
-      } else {
-        Alert.alert('Error', 'Google Maps is not installed');
-      }
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Error', 'Could not open Google Maps');
     });
   };
 
-  const handleStartDelivery = (orderId: number) => {
-    router.push({
-      pathname: '/order-details',
-      params: { id: orderId }
-    });
-  };
+  if (isLoading && assignedOrders.length === 0) {
+    return (
+      <ThemedView style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color={isDark ? '#fff' : '#000'} />
+        <ThemedText style={{ marginTop: 12 }}>Loading your orders...</ThemedText>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
       <View style={styles.header}>
         <ThemedText type="title">My Orders</ThemedText>
+        <ThemedText style={styles.orderCount}>
+          ({filteredOrders.length} orders)
+        </ThemedText>
       </View>
 
-      <ScrollView 
-        style={styles.mainContent}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* In Progress Section */}
-        {inProgressOrders.length > 0 && (
-          <View style={styles.inProgressSection}>
-            <ThemedText type="subtitle" style={styles.sectionTitle}>
-              🚚 In Progress ({inProgressOrders.length})
-            </ThemedText>
-            
-            {inProgressOrders.map((order) => (
-              <ThemedView 
-                key={order.id} 
-                style={[
-                  styles.inProgressCard,
-                  { backgroundColor: isDark ? '#1E3A2E' : '#E8F5E9' }
-                ]}
-              >
-                <View style={styles.inProgressHeader}>
-                  <View style={styles.inProgressInfo}>
-                    <ThemedText style={styles.inProgressOrderNumber}>
-                      {order.orderNumber}
-                    </ThemedText>
-                    <ThemedText style={styles.inProgressCustomer}>
-                      {order.customerName}
-                    </ThemedText>
-                  </View>
-                  <ThemedText style={[styles.inProgressPrice, { color: '#10B981' }]}>
-                    ₹{order.price}
-                  </ThemedText>
-                </View>
-
-                <View style={styles.inProgressAddress}>
-                  <ThemedText style={styles.addressIcon}>📍</ThemedText>
-                  <ThemedText style={styles.inProgressAddressText} numberOfLines={2}>
-                    {order.address}
-                  </ThemedText>
-                </View>
-
-                <View style={styles.inProgressDetails}>
-                  <View style={styles.inProgressDetail}>
-                    <ThemedText style={styles.inProgressDetailLabel}>Distance</ThemedText>
-                    <ThemedText style={styles.inProgressDetailValue}>{order.distance} km</ThemedText>
-                  </View>
-                  <View style={styles.inProgressDetail}>
-                    <ThemedText style={styles.inProgressDetailLabel}>Est. Time</ThemedText>
-                    <ThemedText style={styles.inProgressDetailValue}>{order.time}</ThemedText>
-                  </View>
-                </View>
-
-                <View style={styles.inProgressButtons}>
-                  <TouchableOpacity
-                    style={[styles.inProgressButton, styles.mapsButton]}
-                    onPress={() => handleStartRide(order.latitude || 0, order.longitude || 0)}
-                  >
-                    <ThemedText style={styles.mapsButtonText}>🗺️ Start Ride</ThemedText>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.inProgressButton, styles.detailsButton]}
-                    onPress={() => handleStartDelivery(order.id)}
-                  >
-                    <ThemedText style={styles.detailsButtonText}>📋 Start Delivery</ThemedText>
-                  </TouchableOpacity>
-                </View>
-              </ThemedView>
-            ))}
-          </View>
-        )}
-
-        {/* Divider */}
-        {inProgressOrders.length > 0 && <View style={styles.divider} />}
-
-        {/* Filter Buttons - Responsive Grid */}
-        <View style={styles.filterGrid}>
-          {FILTER_OPTIONS.map((filter) => (
-            <TouchableOpacity
-              key={filter}
-              style={[
-                styles.filterButton,
-                selectedFilter === filter
-                  ? styles.filterButtonActive
-                  : styles.filterButtonInactive,
-              ]}
-              onPress={() => setSelectedFilter(filter)}
-            >
-              <ThemedText
-                style={[
-                  styles.filterButtonText,
-                  selectedFilter === filter && styles.filterButtonTextActive,
-                ]}
-              >
-                {filter}
-              </ThemedText>
-            </TouchableOpacity>
-          ))}
+      {error && (
+        <View
+          style={[
+            styles.errorContainer,
+            { backgroundColor: isDark ? '#3a1a1a' : '#ffebee' },
+          ]}
+        >
+          <ThemedText style={{ color: '#d32f2f' }}>{error}</ThemedText>
         </View>
+      )}
 
-        <View style={styles.orderCountContainer}>
-          <ThemedText style={styles.orderCountText}>
-            ({filteredOrders.length} {selectedFilter.toLowerCase() === 'all' ? 'orders' : `${selectedFilter.toLowerCase()} orders`})
+      {/* Filter Buttons */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterContainer}
+        contentContainerStyle={styles.filterContent}
+      >
+        {FILTER_OPTIONS.map((option) => (
+          <TouchableOpacity
+            key={option}
+            style={[
+              styles.filterButton,
+              {
+                backgroundColor:
+                  selectedFilter === option
+                    ? '#FF6B35'
+                    : isDark
+                    ? '#2a2a2a'
+                    : '#f0f0f0',
+              },
+            ]}
+            onPress={() => setSelectedFilter(option)}
+          >
+            <ThemedText
+              style={[
+                styles.filterButtonText,
+                {
+                  color: selectedFilter === option ? '#fff' : isDark ? '#fff' : '#000',
+                },
+              ]}
+            >
+              {option}
+            </ThemedText>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {filteredOrders.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <ThemedText style={styles.emptyText}>No orders found</ThemedText>
+          <ThemedText style={styles.emptySubText}>
+            {selectedFilter === 'All'
+              ? 'Accept orders to see them here'
+              : `No ${selectedFilter.toLowerCase()} orders`}
           </ThemedText>
         </View>
+      ) : (
+        <ScrollView
+          style={styles.ordersList}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+        >
+          {filteredOrders.map((order) => {
+            const statusColor = getStatusColor(order.status);
+            const statusIcon = getStatusIcon(order.status);
 
-        {/* Orders List */}
-        {filteredOrders.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <ThemedText style={styles.emptyText}>
-              No {selectedFilter.toLowerCase() === 'all' ? '' : selectedFilter.toLowerCase()} orders
-            </ThemedText>
-            <ThemedText style={styles.emptySubText}>
-              {selectedFilter === 'All'
-                ? 'Your orders will appear here'
-                : `You don't have any ${selectedFilter.toLowerCase()} orders`}
-            </ThemedText>
-          </View>
-        ) : (
-          <>
-            {filteredOrders.map((order) => {
-              const statusColor = getStatusColor(order.status);
-              const statusIcon = getStatusIcon(order.status);
-
-              return (
-                <ThemedView 
-                  key={order.id} 
-                  style={[
-                    styles.orderCard,
-                    { backgroundColor: isDark ? '#1F2937' : '#F9FAFB' }
-                  ]}
-                >
-                  {/* Top Row - Order Number and Status */}
-                  <View style={styles.cardTopRow}>
-                    <ThemedText style={styles.orderNumber}>{order.orderNumber}</ThemedText>
-                    <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
-                      <ThemedText style={[styles.statusIcon, { color: statusColor.text }]}>
-                        {statusIcon}
-                      </ThemedText>
-                      <ThemedText style={[styles.statusText, { color: statusColor.text }]}>
-                        {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                      </ThemedText>
-                    </View>
+            return (
+              <ThemedView
+                key={order._id}
+                style={[
+                  styles.orderCard,
+                  { backgroundColor: isDark ? '#1F2937' : '#F9FAFB' },
+                ]}
+              >
+                {/* Header */}
+                <View style={styles.cardHeader}>
+                  <View>
+                    <ThemedText type="subtitle" style={styles.customerName}>
+                      {`${order.customer?.firstName || ''} ${order.customer?.lastName || ''}`.trim() || 'Customer'}
+                    </ThemedText>
+                    <ThemedText style={styles.orderId}>Order #{order.orderNumber}</ThemedText>
                   </View>
-
-                  {/* Customer and Date */}
-                  <View style={styles.customerRow}>
-                    <ThemedText style={styles.customerName}>{order.customerName}</ThemedText>
-                    <ThemedText style={styles.date}>{order.date}</ThemedText>
-                  </View>
-
-                  {/* Address */}
-                  <View style={styles.addressContainer}>
-                    <ThemedText style={styles.addressIcon}>📍</ThemedText>
-                    <ThemedText style={styles.address} numberOfLines={2}>
-                      {order.address}
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      { backgroundColor: statusColor.bg },
+                    ]}
+                  >
+                    <ThemedText style={[styles.statusText, { color: statusColor.text }]}>
+                      {statusIcon} {formatStatus(order.status)}
                     </ThemedText>
                   </View>
+                </View>
 
-                  {/* Details Row */}
-                  <View style={styles.detailsRow}>
-                    <View style={styles.detailItem}>
-                      <ThemedText style={styles.detailLabel}>Price</ThemedText>
-                      <ThemedText style={[styles.detailValue, { color: '#10B981' }]}>
-                        ₹{order.price}
-                      </ThemedText>
-                    </View>
-                    <View style={styles.detailItem}>
-                      <ThemedText style={styles.detailLabel}>Distance</ThemedText>
-                      <ThemedText style={styles.detailValue}>{order.distance} km</ThemedText>
-                    </View>
-                    {order.rating > 0 && (
-                      <View style={styles.detailItem}>
-                        <ThemedText style={styles.detailLabel}>Rating</ThemedText>
-                        <ThemedText style={styles.detailValue}>⭐ {order.rating}</ThemedText>
-                      </View>
+                {/* Price */}
+                <View style={styles.priceContainer}>
+                  <ThemedText style={[styles.price, { color: '#10B981' }]}>
+                    ₹{order.pricing?.total || 0}
+                  </ThemedText>
+                </View>
+
+                {/* Address */}
+                <View style={styles.addressContainer}>
+                  <ThemedText style={styles.addressIcon}>📍</ThemedText>
+                  <ThemedText style={styles.address} numberOfLines={2}>
+                    {`${order.deliveryAddress?.street || ''}, ${order.deliveryAddress?.city || ''}`}
+                  </ThemedText>
+                </View>
+
+                {/* Details Row */}
+                <View style={styles.detailsRow}>
+                  <View style={styles.detailItem}>
+                    <ThemedText style={styles.detailLabel}>Items</ThemedText>
+                    <ThemedText style={styles.detailValue}>
+                      {order.items?.length || 0}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.detailItem}>
+                    <ThemedText style={styles.detailLabel}>Date</ThemedText>
+                    <ThemedText style={styles.detailValue}>
+                      {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.detailItem}>
+                    <ThemedText style={styles.detailLabel}>Time</ThemedText>
+                    <ThemedText style={styles.detailValue}>
+                      {order.createdAt ? new Date(order.createdAt).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }) : 'N/A'}
+                    </ThemedText>
+                  </View>
+                </View>
+
+                {/* Action Buttons */}
+                {order.status !== 'delivered' && (
+                  <View style={styles.buttonsContainer}>
+                    {order.status === 'pending' && (
+                      <>
+                        <TouchableOpacity
+                          style={[
+                            styles.button,
+                            styles.mapsButton,
+                          ]}
+                          onPress={() => handleOpenMaps(12.9716, 77.5946)}
+                        >
+                          <ThemedText style={styles.buttonText}>📍 Maps</ThemedText>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.button,
+                            styles.startButton,
+                            { opacity: actioningId === order._id ? 0.6 : 1 },
+                          ]}
+                          onPress={() => handleStartDelivery(order._id)}
+                          disabled={actioningId === order._id}
+                        >
+                          {actioningId === order._id ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <ThemedText style={styles.buttonText}>Start</ThemedText>
+                          )}
+                        </TouchableOpacity>
+                      </>
+                    )}
+
+                    {order.status === 'out-for-delivery' && (
+                      <>
+                        <TouchableOpacity
+                          style={[
+                            styles.button,
+                            styles.mapsButton,
+                          ]}
+                          onPress={() => handleOpenMaps(12.9716, 77.5946)}
+                        >
+                          <ThemedText style={styles.buttonText}>📍 Maps</ThemedText>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.button,
+                            styles.completeButton,
+                            { opacity: actioningId === order._id ? 0.6 : 1 },
+                          ]}
+                          onPress={() => handleMarkDelivered(order._id)}
+                          disabled={actioningId === order._id}
+                        >
+                          {actioningId === order._id ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <ThemedText style={styles.buttonText}>Complete</ThemedText>
+                          )}
+                        </TouchableOpacity>
+                      </>
                     )}
                   </View>
+                )}
 
-                  {/* Bottom Info */}
-                  <View style={styles.bottomInfo}>
-                    <ThemedText style={styles.time}>🕐 {order.time}</ThemedText>
+                {/* Delivered Info */}
+                {order.status === 'delivered' && (
+                  <View style={[styles.deliveredInfo, { backgroundColor: statusColor.bg + '30' }]}>
+                    <ThemedText style={[styles.deliveredText, { color: statusColor.text }]}>
+                      ✓ Delivered on {order.updatedAt ? new Date(order.updatedAt).toLocaleDateString() : 'N/A'}
+                    </ThemedText>
                   </View>
-                </ThemedView>
-              );
-            })}
-          </>
-        )}
-
-        <View style={styles.bottomPadding} />
-      </ScrollView>
+                )}
+              </ThemedView>
+            );
+          })}
+        </ScrollView>
+      )}
     </ThemedView>
   );
 }
@@ -372,273 +409,174 @@ export default function MyOrdersScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 16,
     paddingTop: 16,
   },
-  header: {
-    marginBottom: 16,
-  },
-  mainContent: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 16,
-  },
-  inProgressSection: {
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-    color: '#10B981',
-  },
-  inProgressCard: {
-    marginBottom: 12,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#10B981',
-  },
-  inProgressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  inProgressInfo: {
-    flex: 1,
-  },
-  inProgressOrderNumber: {
-    fontSize: 12,
-    fontWeight: '600',
-    opacity: 0.8,
-    marginBottom: 2,
-  },
-  inProgressCustomer: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  inProgressPrice: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  inProgressAddress: {
-    flexDirection: 'row',
-    marginBottom: 10,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.08)',
-  },
-  inProgressAddressText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  inProgressDetails: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 10,
-  },
-  inProgressDetail: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
-    borderRadius: 8,
-  },
-  inProgressDetailLabel: {
-    fontSize: 10,
-    opacity: 0.6,
-    marginBottom: 2,
-  },
-  inProgressDetailValue: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  inProgressButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  inProgressButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
+  centerContent: {
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  mapsButton: {
-    backgroundColor: '#0a7ea4',
-  },
-  mapsButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  detailsButton: {
-    backgroundColor: '#FFF3E0',
-    borderWidth: 1,
-    borderColor: '#F57C00',
-  },
-  detailsButtonText: {
-    color: '#F57C00',
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-    marginVertical: 20,
-  },
-  filterGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 8,
+  header: {
+    paddingHorizontal: 16,
     marginBottom: 12,
+  },
+  orderCount: {
+    fontSize: 14,
+    opacity: 0.6,
+    marginTop: 4,
+  },
+  errorContainer: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#d32f2f',
+  },
+  filterContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  filterContent: {
+    gap: 8,
   },
   filterButton: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    borderWidth: 1,
-    width: (screenWidth - 48) / 2,
-    alignItems: 'center',
-  },
-  filterButtonActive: {
-    backgroundColor: '#0a7ea4',
-    borderColor: '#0a7ea4',
-  },
-  filterButtonInactive: {
-    backgroundColor: 'transparent',
-    borderColor: 'rgba(0, 0, 0, 0.2)',
   },
   filterButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#666',
   },
-  filterButtonTextActive: {
-    color: '#fff',
+  ordersList: {
+    flex: 1,
   },
-  orderCountContainer: {
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  orderCard: {
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 12,
-    paddingHorizontal: 4,
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+    elevation: 3,
   },
-  orderCountText: {
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  customerName: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  orderId: {
     fontSize: 12,
     opacity: 0.6,
+    marginTop: 2,
   },
-  emptyContainer: {
-    paddingVertical: 40,
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  priceContainer: {
+    marginBottom: 12,
+  },
+  price: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  addressContainer: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  addressIcon: {
+    fontSize: 18,
+    marginRight: 8,
+  },
+  address: {
+    flex: 1,
+    fontSize: 13,
+    opacity: 0.7,
+  },
+  detailsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    marginBottom: 12,
+  },
+  detailItem: {
+    alignItems: 'center',
+  },
+  detailLabel: {
+    fontSize: 11,
+    opacity: 0.6,
+    marginBottom: 2,
+  },
+  detailValue: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  buttonsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  button: {
+    flex: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  mapsButton: {
+    backgroundColor: '#3B82F6',
+  },
+  startButton: {
+    backgroundColor: '#10B981',
+  },
+  completeButton: {
+    backgroundColor: '#8B5CF6',
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  deliveredInfo: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  deliveredText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
   emptyText: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
+    textAlign: 'center',
     marginBottom: 8,
   },
   emptySubText: {
     fontSize: 14,
     opacity: 0.6,
-  },
-  orderCard: {
-    marginBottom: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
-  },
-  cardTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  orderNumber: {
-    fontSize: 13,
-    fontWeight: '600',
-    opacity: 0.7,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    gap: 4,
-  },
-  statusIcon: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  customerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  customerName: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  date: {
-    fontSize: 12,
-    opacity: 0.6,
-  },
-  addressContainer: {
-    flexDirection: 'row',
-    marginBottom: 10,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.08)',
-  },
-  addressIcon: {
-    fontSize: 14,
-    marginRight: 6,
-  },
-  address: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 16,
-    opacity: 0.8,
-  },
-  detailsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  detailItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  detailLabel: {
-    fontSize: 10,
-    opacity: 0.6,
-    marginBottom: 2,
-  },
-  detailValue: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  bottomInfo: {
-    alignItems: 'center',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.08)',
-  },
-  time: {
-    fontSize: 12,
-    opacity: 0.7,
-  },
-  bottomPadding: {
-    height: 20,
+    textAlign: 'center',
   },
 });

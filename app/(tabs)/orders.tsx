@@ -1,166 +1,211 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useOrders } from '@/context/order-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-
-// Sample orders data
-const sampleOrders = [
-  {
-    id: 1,
-    customerName: 'John Doe',
-    address: '123 Main St, Apt 4B, Downtown',
-    price: 250,
-    distance: 2.5,
-    items: 3,
-    time: '15 mins',
-    status: 'available',
-  },
-  {
-    id: 2,
-    customerName: 'Sarah Smith',
-    address: '456 Oak Ave, Suite 200, Midtown',
-    price: 380,
-    distance: 4.2,
-    items: 5,
-    time: '22 mins',
-    status: 'available',
-  },
-  {
-    id: 3,
-    customerName: 'Mike Johnson',
-    address: '789 Pine Rd, Building C, Uptown',
-    price: 180,
-    distance: 1.8,
-    items: 2,
-    time: '12 mins',
-    status: 'available',
-  },
-  {
-    id: 4,
-    customerName: 'Emma Wilson',
-    address: '321 Elm St, Floor 5, East Side',
-    price: 450,
-    distance: 5.1,
-    items: 6,
-    time: '28 mins',
-    status: 'available',
-  },
-  {
-    id: 5,
-    customerName: 'David Brown',
-    address: '654 Maple Ave, Near Park, West End',
-    price: 320,
-    distance: 3.5,
-    items: 4,
-    time: '20 mins',
-    status: 'available',
-  },
-];
+import { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 
 export default function OrdersScreen() {
-  const [orders, setOrders] = useState(sampleOrders);
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const { pendingOrders, isLoading, error, fetchPendingOrders, acceptOrder } = useOrders();
+  const [refreshing, setRefreshing] = useState(false);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
-  const handleAccept = (orderId: number, customerName: string) => {
-    Alert.alert('Order Accepted', `You accepted ${customerName}'s order`, [
-      {
-        text: 'OK',
-        onPress: () => {
-          setOrders(orders.filter(order => order.id !== orderId));
-        },
-      },
-    ]);
+  // Fetch pending orders on mount
+  useEffect(() => {
+    const loadOrders = async () => {
+      try {
+        await fetchPendingOrders();
+      } catch (err) {
+        console.error('Error loading orders:', err);
+      }
+    };
+
+    loadOrders();
+  }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchPendingOrders();
+    } catch (err) {
+      Alert.alert('Error', 'Failed to refresh orders');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
-  const handleReject = (orderId: number, customerName: string) => {
-    Alert.alert('Order Rejected', `You rejected ${customerName}'s order`, [
-      {
-        text: 'OK',
-        onPress: () => {
-          setOrders(orders.filter(order => order.id !== orderId));
+  const handleAccept = async (orderId: string, customerName: string) => {
+    Alert.alert(
+      'Accept Order',
+      `Do you want to accept ${customerName}'s order?`,
+      [
+        {
+          text: 'Cancel',
+          onPress: () => {},
+          style: 'cancel',
         },
-      },
-    ]);
+        {
+          text: 'Accept',
+          onPress: async () => {
+            try {
+              setAcceptingId(orderId);
+              const success = await acceptOrder(orderId);
+              if (success) {
+                Alert.alert('Success', 'Order accepted successfully!');
+                // Refresh the list after acceptance
+                await fetchPendingOrders();
+              } else {
+                Alert.alert('Error', 'Failed to accept order');
+              }
+            } catch (err) {
+              Alert.alert('Error', 'Failed to accept order');
+              console.error('Accept order error:', err);
+            } finally {
+              setAcceptingId(null);
+            }
+          },
+        },
+      ]
+    );
   };
+
+  if (isLoading && pendingOrders.length === 0) {
+    return (
+      <ThemedView style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color={isDark ? '#fff' : '#000'} />
+        <ThemedText style={{ marginTop: 12 }}>Loading orders...</ThemedText>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
       <View style={styles.header}>
         <ThemedText type="title">Available Orders</ThemedText>
-        <ThemedText style={styles.orderCount}>({orders.length} orders)</ThemedText>
+        <ThemedText style={styles.orderCount}>
+          ({pendingOrders.length} orders)
+        </ThemedText>
       </View>
 
-      {orders.length === 0 ? (
+      {error && (
+        <View
+          style={[
+            styles.errorContainer,
+            { backgroundColor: isDark ? '#3a1a1a' : '#ffebee' },
+          ]}
+        >
+          <ThemedText style={{ color: '#d32f2f' }}>{error}</ThemedText>
+        </View>
+      )}
+
+      {pendingOrders.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <ThemedText style={styles.emptyText}>No orders available at the moment</ThemedText>
-          <ThemedText style={styles.emptySubText}>Check back later for new orders</ThemedText>
+          <ThemedText style={styles.emptyText}>
+            No orders available at the moment
+          </ThemedText>
+          <ThemedText style={styles.emptySubText}>
+            Check back later for new orders
+          </ThemedText>
         </View>
       ) : (
-        <ScrollView 
+        <ScrollView
           style={styles.ordersList}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
         >
-          {orders.map((order) => (
-            <ThemedView 
-              key={order.id} 
+          {pendingOrders.map((order) => (
+            <ThemedView
+              key={order._id}
               style={[
                 styles.orderCard,
-                { backgroundColor: isDark ? '#1F2937' : '#F9FAFB' }
+                { backgroundColor: isDark ? '#1F2937' : '#F9FAFB' },
               ]}
             >
               {/* Header */}
               <View style={styles.cardHeader}>
-                <ThemedText type="subtitle" style={styles.customerName}>
-                  {order.customerName}
-                </ThemedText>
+                <View>
+                  <ThemedText type="subtitle" style={styles.customerName}>
+                    {`${order.customer?.firstName || ''} ${order.customer?.lastName || ''}`.trim() || 'Customer'}
+                  </ThemedText>
+                  <ThemedText style={styles.orderId}>Order #{order.orderNumber}</ThemedText>
+                </View>
                 <ThemedText style={[styles.price, { color: '#10B981' }]}>
-                  ₹{order.price}
+                  ₹{order.pricing?.total || 0}
                 </ThemedText>
               </View>
 
               {/* Address */}
               <View style={styles.addressContainer}>
                 <ThemedText style={styles.addressIcon}>📍</ThemedText>
-                <ThemedText style={styles.address}>{order.address}</ThemedText>
+                <ThemedText style={styles.address} numberOfLines={2}>
+                  {`${order.deliveryAddress?.street || ''}, ${order.deliveryAddress?.city || ''}`}
+                </ThemedText>
               </View>
 
               {/* Details Row */}
               <View style={styles.detailsRow}>
                 <View style={styles.detailItem}>
-                  <ThemedText style={styles.detailLabel}>Distance</ThemedText>
-                  <ThemedText style={styles.detailValue}>{order.distance} km</ThemedText>
-                </View>
-                <View style={styles.detailItem}>
                   <ThemedText style={styles.detailLabel}>Items</ThemedText>
-                  <ThemedText style={styles.detailValue}>{order.items}</ThemedText>
+                  <ThemedText style={styles.detailValue}>
+                    {order.items?.length || 0}
+                  </ThemedText>
                 </View>
                 <View style={styles.detailItem}>
-                  <ThemedText style={styles.detailLabel}>Est. Time</ThemedText>
-                  <ThemedText style={styles.detailValue}>{order.time}</ThemedText>
+                  <ThemedText style={styles.detailLabel}>Status</ThemedText>
+                  <ThemedText
+                    style={[styles.detailValue, { color: '#FF9800' }]}
+                  >
+                    {order.status || 'pending'}
+                  </ThemedText>
+                </View>
+                <View style={styles.detailItem}>
+                  <ThemedText style={styles.detailLabel}>Time</ThemedText>
+                  <ThemedText style={styles.detailValue}>
+                    {order.createdAt ? new Date(order.createdAt).toLocaleTimeString('en-US', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }) : 'N/A'}
+                  </ThemedText>
                 </View>
               </View>
 
               {/* Action Buttons */}
               <View style={styles.buttonsContainer}>
                 <TouchableOpacity
-                  style={[styles.button, styles.rejectButton]}
-                  onPress={() => handleReject(order.id, order.customerName)}
+                  style={[
+                    styles.button,
+                    styles.acceptButton,
+                    {
+                      opacity: acceptingId === order._id ? 0.6 : 1,
+                    },
+                  ]}
+                  onPress={() => handleAccept(order._id, `${order.customer?.firstName || ''} ${order.customer?.lastName || ''}`)}
+                  disabled={acceptingId === order._id}
                 >
-                  <ThemedText style={styles.rejectButtonText}>✕ Reject</ThemedText>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.button, styles.acceptButton]}
-                  onPress={() => handleAccept(order.id, order.customerName)}
-                >
-                  <ThemedText style={styles.acceptButtonText}>✓ Accept</ThemedText>
+                  {acceptingId === order.id ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <ThemedText style={styles.buttonText}>✓ Accept</ThemedText>
+                    </>
+                  )}
                 </TouchableOpacity>
               </View>
             </ThemedView>
           ))}
-          <View style={styles.bottomPadding} />
         </ScrollView>
       )}
     </ThemedView>
@@ -170,44 +215,42 @@ export default function OrdersScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 16,
     paddingTop: 16,
   },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
+    paddingHorizontal: 16,
     marginBottom: 16,
   },
   orderCount: {
-    fontSize: 12,
+    fontSize: 14,
     opacity: 0.6,
     marginTop: 4,
+  },
+  errorContainer: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#d32f2f',
   },
   ordersList: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 16,
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 8,
-  },
-  emptySubText: {
-    fontSize: 14,
-    opacity: 0.6,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
   },
   orderCard: {
-    marginBottom: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
+    padding: 16,
+    marginBottom: 12,
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+    elevation: 3,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -218,37 +261,39 @@ const styles = StyleSheet.create({
   customerName: {
     fontSize: 16,
     fontWeight: '600',
-    flex: 1,
+  },
+  orderId: {
+    fontSize: 12,
+    opacity: 0.6,
+    marginTop: 2,
   },
   price: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
-    marginLeft: 8,
   },
   addressContainer: {
     flexDirection: 'row',
     marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.08)',
   },
   addressIcon: {
-    fontSize: 16,
+    fontSize: 18,
     marginRight: 8,
   },
   address: {
     flex: 1,
     fontSize: 13,
-    lineHeight: 18,
-    opacity: 0.85,
+    opacity: 0.7,
   },
   detailsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    marginBottom: 12,
   },
   detailItem: {
-    flex: 1,
     alignItems: 'center',
   },
   detailLabel: {
@@ -262,37 +307,38 @@ const styles = StyleSheet.create({
   },
   buttonsContainer: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   button: {
     flex: 1,
-    paddingVertical: 11,
     borderRadius: 8,
+    paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    fontWeight: '600',
-  },
-  rejectButton: {
-    backgroundColor: '#FEE2E2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-  rejectButtonText: {
-    color: '#DC2626',
-    fontWeight: '600',
-    fontSize: 14,
   },
   acceptButton: {
-    backgroundColor: '#D1FAE5',
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
+    backgroundColor: '#10B981',
   },
-  acceptButtonText: {
-    color: '#059669',
+  buttonText: {
+    color: '#fff',
     fontWeight: '600',
     fontSize: 14,
   },
-  bottomPadding: {
-    height: 20,
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptySubText: {
+    fontSize: 14,
+    opacity: 0.6,
+    textAlign: 'center',
   },
 });
