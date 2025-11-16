@@ -6,6 +6,9 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
+// Filter active orders only
+const activeOrders = orders.filter((o) => o.status === 'Active');
+
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -78,13 +81,13 @@ export default function HomeScreen() {
         </ThemedText>
       </ThemedView>
 
-      {/* Quick Stats Row 1 */}
+      {/* Stats Row 1 */}
       <View style={styles.statsGrid}>
         <ThemedView style={[styles.statCard, { backgroundColor: isDark ? '#1E3A3A' : '#E3F2FD' }]}>
           <ThemedText type="subtitle" style={styles.statNumber}>
             {stats?.totalDeliveries || 0}
           </ThemedText>
-          <ThemedText style={styles.statLabel}>Orders Served</ThemedText>
+          <ThemedText style={styles.statLabel}>Total Orders</ThemedText>
         </ThemedView>
 
         <ThemedView style={[styles.statCard, { backgroundColor: isDark ? '#1E3A1E' : '#E8F5E9' }]}>
@@ -95,13 +98,13 @@ export default function HomeScreen() {
         </ThemedView>
       </View>
 
-      {/* Quick Stats Row 2 */}
+      {/* Stats Row 2 */}
       <View style={styles.statsGrid}>
         <ThemedView style={[styles.statCard, { backgroundColor: isDark ? '#3A1E1E' : '#FFEBEE' }]}>
           <ThemedText type="subtitle" style={[styles.statNumber, { color: '#D32F2F' }]}>
             {assignedOrders.length}
           </ThemedText>
-          <ThemedText style={styles.statLabel}>Active Deliveries</ThemedText>
+          <ThemedText style={styles.statLabel}>Active Orders</ThemedText>
         </ThemedView>
 
         <ThemedView style={[styles.statCard, { backgroundColor: isDark ? '#3A3A1E' : '#FFF3E0' }]}>
@@ -112,7 +115,7 @@ export default function HomeScreen() {
         </ThemedView>
       </View>
 
-      {/* Performance Metrics */}
+      {/* Active Orders List */}
       <ThemedView style={styles.section}>
         <ThemedText type="subtitle">Performance Metrics</ThemedText>
 
@@ -256,7 +259,6 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 12,
-    textAlign: 'center',
     opacity: 0.8,
   },
   section: {
@@ -265,30 +267,13 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 12,
   },
-  metricRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  borderTop: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  metricLabel: {
-    fontSize: 14,
-  },
-  metricValue: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
   deliveryItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   deliveryInfo: {
     flex: 1,
@@ -296,7 +281,6 @@ const styles = StyleSheet.create({
   deliveryLocation: {
     fontSize: 14,
     fontWeight: '500',
-    marginBottom: 4,
   },
   deliveryTime: {
     fontSize: 12,
