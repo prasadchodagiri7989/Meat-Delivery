@@ -1,157 +1,103 @@
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { useOrders } from '@/context/order-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useEffect, useState } from 'react';
+import { orderService } from '@/services';
+import { Order } from '@/types';
+import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    Linking,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
-const screenWidth = Dimensions.get('window').width;
-
-const FILTER_OPTIONS = ['All', 'out-for-delivery', 'delivered'];
-
 export default function MyOrdersScreen() {
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const { assignedOrders, isLoading, error, fetchAssignedOrders, markOutForDelivery, markDelivered } = useOrders();
-  const [selectedFilter, setSelectedFilter] = useState('All');
+  
+  const [assignedOrders, setAssignedOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [actioningId, setActioningId] = useState<string | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
-  // Fetch assigned orders on mount
-  useEffect(() => {
-    const loadOrders = async () => {
-      try {
-        await fetchAssignedOrders();
-      } catch (err) {
-        console.error('Error loading orders:', err);
+  // Fetch assigned orders directly from API
+  const fetchAssignedOrders = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      console.log('🔄 Fetching assigned orders...');
+      const response = await orderService.getAssignedOrders();
+      console.log('📦 API Response:', JSON.stringify(response, null, 2));
+      
+      // API returns orders in the 'message' field, not 'data'
+      const orders = Array.isArray(response.message) ? response.message : 
+                     Array.isArray(response.data) ? response.data : [];
+      
+      if (response.success && orders.length > 0) {
+        console.log(`✅ Found ${orders.length} assigned orders`);
+        setAssignedOrders(orders);
+      } else {
+        console.log('⚠️ No assigned orders available');
+        setAssignedOrders([]);
       }
-    };
-
-    loadOrders();
+    } catch (err: any) {
+      console.error('❌ Fetch error:', err);
+      setError(err.message || 'Failed to fetch orders');
+      setAssignedOrders([]);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  // Fetch orders every time the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 My Orders screen focused - fetching orders...');
+      fetchAssignedOrders();
+    }, [fetchAssignedOrders])
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
       await fetchAssignedOrders();
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to refresh orders');
     } finally {
       setRefreshing(false);
     }
   };
 
-  // Filter orders based on selected status
-  const filteredOrders = assignedOrders.filter(order => {
-    if (selectedFilter === 'All') return true;
-    return order.status === selectedFilter;
-  });
-
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'out-for-delivery':
-        return { bg: isDark ? '#1E3A1E' : '#E8F5E9', text: '#2E7D32' };
-      case 'delivered':
-        return { bg: isDark ? '#1E2A3A' : '#E3F2FD', text: '#1565C0' };
-      case 'pending':
-        return { bg: isDark ? '#3A3A1E' : '#FFF3E0', text: '#F57C00' };
-      default:
-        return { bg: isDark ? '#1F2937' : '#F3F4F6', text: '#6B7280' };
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'out-for-delivery':
-        return '🚚';
-      case 'delivered':
-        return '✓';
-      case 'pending':
-        return '⏳';
-      default:
-        return '◦';
-    }
-  };
-
-  const formatStatus = (status: string) => {
-    return status?.replace(/_/g, ' ').charAt(0).toUpperCase() + status?.slice(1).replace(/_/g, ' ') || 'Unknown';
-  };
-
-  const handleStartDelivery = async (orderId: string) => {
+  const handleAccept = async (orderId: string, customerName: string) => {
     Alert.alert(
-      'Start Delivery',
-      'Mark this order as out for delivery?',
+      'Mark Delivered',
+      `Mark order from ${customerName} as delivered?`,
       [
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Cancel',
-          onPress: () => {},
-          style: 'cancel',
-        },
-        {
-          text: 'Start',
+          text: 'Mark Delivered',
           onPress: async () => {
             try {
-              setActioningId(orderId);
-              const success = await markOutForDelivery(orderId);
-              if (success) {
-                Alert.alert('Success', 'Order marked as out for delivery');
-                await fetchAssignedOrders();
-              } else {
-                Alert.alert('Error', 'Failed to update order status');
-              }
-            } catch (err) {
-              Alert.alert('Error', 'Failed to update order');
-              console.error('Mark out for delivery error:', err);
-            } finally {
-              setActioningId(null);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleMarkDelivered = async (orderId: string) => {
-    Alert.prompt(
-      'Complete Delivery',
-      'Enter the delivery OTP:',
-      [
-        {
-          text: 'Cancel',
-          onPress: () => {},
-          style: 'cancel',
-        },
-        {
-          text: 'Confirm',
-          onPress: async (otp: string | undefined) => {
-            if (!otp || otp.trim().length === 0) {
-              Alert.alert('Error', 'Please enter OTP');
-              return;
-            }
-            try {
-              setActioningId(orderId);
-              const success = await markDelivered(orderId, '', otp);
-              if (success) {
+              setAcceptingId(orderId);
+              const response = await orderService.markDelivered(orderId, 'Delivered successfully');
+              if (response.success) {
                 Alert.alert('Success', 'Order marked as delivered!');
                 await fetchAssignedOrders();
               } else {
-                Alert.alert('Error', 'Failed to mark as delivered');
+                Alert.alert('Error', response.message || 'Failed to mark as delivered');
               }
-            } catch (err) {
-              Alert.alert('Error', 'Failed to complete delivery');
-              console.error('Mark delivered error:', err);
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to mark as delivered');
             } finally {
-              setActioningId(null);
+              setAcceptingId(null);
             }
           },
         },
@@ -159,308 +105,270 @@ export default function MyOrdersScreen() {
     );
   };
 
-  const handleOpenMaps = (lat: number, lon: number) => {
-    if (!lat || !lon) {
-      Alert.alert('Error', 'Location not available');
-      return;
-    }
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`;
-    Linking.openURL(url).catch(() => {
-      Alert.alert('Error', 'Could not open Google Maps');
-    });
-  };
+  // Colors
+  const bgColor = isDark ? '#111827' : '#FFFFFF';
+  const cardBg = isDark ? '#1F2937' : '#F9FAFB';
+  const textColor = isDark ? '#F9FAFB' : '#111827';
+  const textSecondary = isDark ? '#9CA3AF' : '#6B7280';
+  const borderColor = isDark ? '#374151' : '#E5E7EB';
 
   if (isLoading && assignedOrders.length === 0) {
     return (
-      <ThemedView style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color={isDark ? '#fff' : '#000'} />
-        <ThemedText style={{ marginTop: 12 }}>Loading your orders...</ThemedText>
-      </ThemedView>
+      <View style={[styles.container, styles.centerContent, { backgroundColor: bgColor }]}>
+        <ActivityIndicator size="large" color="#10B981" />
+        <Text style={[styles.loadingText, { color: textSecondary }]}>Loading orders...</Text>
+      </View>
     );
   }
 
   return (
-    <ThemedView style={styles.container}>
+    <View style={[styles.container, { backgroundColor: bgColor }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <ThemedText type="title">My Orders</ThemedText>
-        <ThemedText style={styles.orderCount}>
-          ({filteredOrders.length} orders)
-        </ThemedText>
+        <Text style={[styles.title, { color: textColor }]}>My Orders</Text>
+        <Text style={[styles.orderCount, { color: textSecondary }]}>
+          {String(assignedOrders.length)} {assignedOrders.length === 1 ? 'order' : 'orders'}
+        </Text>
       </View>
 
-      {error && (
-        <View
-          style={[
-            styles.errorContainer,
-            { backgroundColor: isDark ? '#3a1a1a' : '#ffebee' },
-          ]}
-        >
-          <ThemedText style={{ color: '#d32f2f' }}>{error}</ThemedText>
+      {/* Error Message */}
+      {error ? (
+        <View style={[styles.errorContainer, { backgroundColor: isDark ? '#7F1D1D' : '#FEE2E2' }]}>
+          <Text style={[styles.errorText, { color: isDark ? '#FCA5A5' : '#991B1B' }]}>
+            {String(error)}
+          </Text>
         </View>
-      )}
+      ) : null}
 
-      {/* Filter Buttons */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterContainer}
-        contentContainerStyle={styles.filterContent}
-      >
-        {FILTER_OPTIONS.map((option) => (
-          <TouchableOpacity
-            key={option}
-            style={[
-              styles.filterButton,
-              {
-                backgroundColor:
-                  selectedFilter === option
-                    ? '#FF6B35'
-                    : isDark
-                    ? '#2a2a2a'
-                    : '#f0f0f0',
-              },
-            ]}
-            onPress={() => setSelectedFilter(option)}
-          >
-            <ThemedText
-              style={[
-                styles.filterButtonText,
-                {
-                  color: selectedFilter === option ? '#fff' : isDark ? '#fff' : '#000',
-                },
-              ]}
-            >
-              {option}
-            </ThemedText>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {filteredOrders.length === 0 ? (
+      {/* Empty State */}
+      {assignedOrders.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <ThemedText style={styles.emptyText}>No orders found</ThemedText>
-          <ThemedText style={styles.emptySubText}>
-            {selectedFilter === 'All'
-              ? 'Accept orders to see them here'
-              : `No ${selectedFilter.toLowerCase()} orders`}
-          </ThemedText>
+          <Text style={[styles.emptyText, { color: textColor }]}>No assigned orders</Text>
+          <Text style={[styles.emptySubText, { color: textSecondary }]}>
+            Accept orders from the Orders tab
+          </Text>
         </View>
       ) : (
         <ScrollView
-          style={styles.ordersList}
-          showsVerticalScrollIndicator={false}
+          style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={handleRefresh}
+              tintColor="#10B981"
+            />
           }
         >
-          {filteredOrders.map((order) => {
-            const statusColor = getStatusColor(order.status);
-            const statusIcon = getStatusIcon(order.status);
+          {assignedOrders
+            .sort((a, b) => {
+              // Sort: non-delivered orders first, delivered orders last
+              const aDelivered = a.status === 'delivered' ? 1 : 0;
+              const bDelivered = b.status === 'delivered' ? 1 : 0;
+              return aDelivered - bDelivered;
+            })
+            .map((order: Order, index, sortedArray) => {
+            // Safely extract values
+            const firstName = String(order.customer?.firstName || '');
+            const lastName = String(order.customer?.lastName || '');
+            const customerName = `${firstName} ${lastName}`.trim() || 'Customer';
+            
+            const orderNum = String(order.orderNumber || 'N/A');
+            const totalPrice = Number(order.pricing?.total) || 0;
+            
+            const street = String(order.deliveryAddress?.street || '');
+            const city = String(order.deliveryAddress?.city || '');
+            const address = `${street}${street && city ? ', ' : ''}${city}`.trim() || 'Address not available';
+            
+            const itemCount = Array.isArray(order.items) ? order.items.length : 0;
+            const statusText = String(order.status || 'pending');
 
+            const paymentMethod = String(order.paymentInfo?.method || 'N/A');
+            const phone = String(order.contactInfo?.phone || 'N/A');
+            
+            // Check if we need to show "Completed" header
+            const isDelivered = order.status === 'delivered';
+            const prevOrder = index > 0 ? sortedArray[index - 1] : null;
+            const showCompletedHeader = isDelivered && (!prevOrder || prevOrder.status !== 'delivered');
+            
             return (
-              <ThemedView
-                key={order._id}
-                style={[
-                  styles.orderCard,
-                  { backgroundColor: isDark ? '#1F2937' : '#F9FAFB' },
-                ]}
+              <React.Fragment key={order._id}>
+                {showCompletedHeader && (
+                  <View style={styles.sectionHeader}>
+                    <ThemedText style={styles.sectionHeaderText}>
+                      Completed Orders
+                    </ThemedText>
+                  </View>
+                )}
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                onPress={() => {
+                  console.log('🔵 Order card clicked:', order._id);
+                  router.push({
+                    pathname: '/order-details',
+                    params: { orderId: order._id }
+                  });
+                }}
               >
-                {/* Header */}
+                <View
+                  style={[styles.orderCard, { backgroundColor: cardBg, borderColor: borderColor }]}
+                >
+                {/* Header with Status Badge */}
                 <View style={styles.cardHeader}>
-                  <View>
-                    <ThemedText type="subtitle" style={styles.customerName}>
-                      {`${order.customer?.firstName || ''} ${order.customer?.lastName || ''}`.trim() || 'Customer'}
-                    </ThemedText>
-                    <ThemedText style={styles.orderId}>Order #{order.orderNumber}</ThemedText>
+                  <View style={styles.headerLeft}>
+                    <Text style={[styles.customerName, { color: textColor }]}>
+                      👤 {customerName}
+                    </Text>
+                    <Text style={[styles.orderId, { color: textSecondary }]}>
+                      Order #{orderNum}
+                    </Text>
                   </View>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      { backgroundColor: statusColor.bg },
-                    ]}
-                  >
-                    <ThemedText style={[styles.statusText, { color: statusColor.text }]}>
-                      {statusIcon} {formatStatus(order.status)}
-                    </ThemedText>
-                  </View>
-                </View>
-
-                {/* Price */}
-                <View style={styles.priceContainer}>
-                  <ThemedText style={[styles.price, { color: '#10B981' }]}>
-                    ₹{order.pricing?.total || 0}
-                  </ThemedText>
-                </View>
-
-                {/* Address */}
-                <View style={styles.addressContainer}>
-                  <ThemedText style={styles.addressIcon}>📍</ThemedText>
-                  <ThemedText style={styles.address} numberOfLines={2}>
-                    {`${order.deliveryAddress?.street || ''}, ${order.deliveryAddress?.city || ''}`}
-                  </ThemedText>
-                </View>
-
-                {/* Details Row */}
-                <View style={styles.detailsRow}>
-                  <View style={styles.detailItem}>
-                    <ThemedText style={styles.detailLabel}>Items</ThemedText>
-                    <ThemedText style={styles.detailValue}>
-                      {order.items?.length || 0}
-                    </ThemedText>
-                  </View>
-                  <View style={styles.detailItem}>
-                    <ThemedText style={styles.detailLabel}>Date</ThemedText>
-                    <ThemedText style={styles.detailValue}>
-                      {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
-                    </ThemedText>
-                  </View>
-                  <View style={styles.detailItem}>
-                    <ThemedText style={styles.detailLabel}>Time</ThemedText>
-                    <ThemedText style={styles.detailValue}>
-                      {order.createdAt ? new Date(order.createdAt).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      }) : 'N/A'}
-                    </ThemedText>
+                  <View style={styles.priceContainer}>
+                    <Text style={styles.price}>₹{totalPrice.toFixed(2)}</Text>
+                    <View style={[styles.statusBadgeContainer, { backgroundColor: isDark ? '#854D0E' : '#FEF3C7' }]}>
+                      <Text style={[styles.statusBadge, { color: '#F59E0B' }]}>
+                        {statusText.toUpperCase()}
+                      </Text>
+                    </View>
                   </View>
                 </View>
 
-                {/* Action Buttons */}
+                {/* Divider */}
+                <View style={[styles.divider, { backgroundColor: borderColor }]} />
+
+                {/* Address Section */}
+                <View style={styles.section}>
+                  <Text style={[styles.sectionLabel, { color: textSecondary }]}>
+                    📍 DELIVERY ADDRESS
+                  </Text>
+                  <Text style={[styles.addressText, { color: textColor }]}>
+                    {address}
+                  </Text>
+                </View>
+
+                {/* Order Details Grid */}
+                <View style={styles.detailsGrid}>
+                  <View style={styles.detailBox}>
+                    <Text style={[styles.detailLabel, { color: textSecondary }]}>Items</Text>
+                    <Text style={[styles.detailValue, { color: textColor }]}>
+                      🛍️ {String(itemCount)}
+                    </Text>
+                  </View>
+                  <View style={styles.detailBox}>
+                    <Text style={[styles.detailLabel, { color: textSecondary }]}>Payment</Text>
+                    <Text style={[styles.detailValue, { color: textColor }]}>
+                      {paymentMethod === 'cash-on-delivery' ? '💵 COD' : '💳 Online'}
+                    </Text>
+                  </View>
+                  <View style={styles.detailBox}>
+                    <Text style={[styles.detailLabel, { color: textSecondary }]}>Contact</Text>
+                    <Text style={[styles.detailValue, { color: textColor }]}>
+                      📞 {phone}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Mark Delivered Button - Only show for non-delivered orders */}
                 {order.status !== 'delivered' && (
-                  <View style={styles.buttonsContainer}>
-                    {order.status === 'pending' && (
-                      <>
-                        <TouchableOpacity
-                          style={[
-                            styles.button,
-                            styles.mapsButton,
-                          ]}
-                          onPress={() => handleOpenMaps(12.9716, 77.5946)}
-                        >
-                          <ThemedText style={styles.buttonText}>📍 Maps</ThemedText>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.button,
-                            styles.startButton,
-                            { opacity: actioningId === order._id ? 0.6 : 1 },
-                          ]}
-                          onPress={() => handleStartDelivery(order._id)}
-                          disabled={actioningId === order._id}
-                        >
-                          {actioningId === order._id ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <ThemedText style={styles.buttonText}>Start</ThemedText>
-                          )}
-                        </TouchableOpacity>
-                      </>
+                  <TouchableOpacity
+                    style={[
+                      styles.acceptButton,
+                      acceptingId === order._id && styles.acceptButtonDisabled
+                    ]}
+                    onPress={() => handleAccept(String(order._id), customerName)}
+                    disabled={acceptingId === order._id}
+                    activeOpacity={0.7}
+                  >
+                    {acceptingId === order._id ? (
+                      <View style={styles.buttonContent}>
+                        <ActivityIndicator size="small" color="#fff" />
+                        <Text style={[styles.acceptButtonText, { marginLeft: 8 }]}>Processing...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.acceptButtonText}>✓ Mark Delivered</Text>
                     )}
-
-                    {order.status === 'out-for-delivery' && (
-                      <>
-                        <TouchableOpacity
-                          style={[
-                            styles.button,
-                            styles.mapsButton,
-                          ]}
-                          onPress={() => handleOpenMaps(12.9716, 77.5946)}
-                        >
-                          <ThemedText style={styles.buttonText}>📍 Maps</ThemedText>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.button,
-                            styles.completeButton,
-                            { opacity: actioningId === order._id ? 0.6 : 1 },
-                          ]}
-                          onPress={() => handleMarkDelivered(order._id)}
-                          disabled={actioningId === order._id}
-                        >
-                          {actioningId === order._id ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <ThemedText style={styles.buttonText}>Complete</ThemedText>
-                          )}
-                        </TouchableOpacity>
-                      </>
-                    )}
-                  </View>
+                  </TouchableOpacity>
                 )}
-
-                {/* Delivered Info */}
-                {order.status === 'delivered' && (
-                  <View style={[styles.deliveredInfo, { backgroundColor: statusColor.bg + '30' }]}>
-                    <ThemedText style={[styles.deliveredText, { color: statusColor.text }]}>
-                      ✓ Delivered on {order.updatedAt ? new Date(order.updatedAt).toLocaleDateString() : 'N/A'}
-                    </ThemedText>
-                  </View>
-                )}
-              </ThemedView>
+              </View>
+            </TouchableOpacity>
+          </React.Fragment>
             );
           })}
         </ScrollView>
       )}
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 16,
   },
   centerContent: {
     justifyContent: 'center',
     alignItems: 'center',
   },
+  loadingText: {
+    fontSize: 16,
+    marginTop: 12,
+  },
   header: {
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
   orderCount: {
     fontSize: 14,
-    opacity: 0.6,
-    marginTop: 4,
+    marginTop: 2,
   },
   errorContainer: {
-    marginHorizontal: 16,
-    marginBottom: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
     padding: 12,
     borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#d32f2f',
   },
-  filterContainer: {
-    paddingHorizontal: 16,
-    marginBottom: 12,
+  errorText: {
+    fontSize: 14,
   },
-  filterContent: {
-    gap: 8,
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
   },
-  filterButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  filterButtonText: {
-    fontSize: 13,
+  emptyText: {
+    fontSize: 18,
     fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 8,
   },
-  ordersList: {
+  emptySubText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingBottom: 20,
   },
   orderCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-    elevation: 3,
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -468,115 +376,108 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 12,
   },
+  headerLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
   customerName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
   },
   orderId: {
-    fontSize: 12,
-    opacity: 0.6,
-    marginTop: 2,
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  priceContainer: {
-    marginBottom: 12,
-  },
-  price: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  addressContainer: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  addressIcon: {
-    fontSize: 18,
-    marginRight: 8,
-  },
-  address: {
-    flex: 1,
     fontSize: 13,
     opacity: 0.7,
   },
-  detailsRow: {
+  priceContainer: {
+    alignItems: 'flex-end',
+  },
+  price: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#10B981',
+    marginBottom: 6,
+  },
+  statusBadgeContainer: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  divider: {
+    height: 1,
+    marginVertical: 12,
+    opacity: 0.2,
+  },
+  section: {
+    marginBottom: 16,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  addressText: {
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  detailsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    marginBottom: 12,
+    marginBottom: 18,
   },
-  detailItem: {
+  detailBox: {
+    flex: 1,
     alignItems: 'center',
   },
   detailLabel: {
     fontSize: 11,
-    opacity: 0.6,
-    marginBottom: 2,
+    marginBottom: 4,
+    opacity: 0.7,
   },
   detailValue: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
   },
-  buttonsContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  button: {
-    flex: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mapsButton: {
-    backgroundColor: '#3B82F6',
-  },
-  startButton: {
+  acceptButton: {
     backgroundColor: '#10B981',
-  },
-  completeButton: {
-    backgroundColor: '#8B5CF6',
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  deliveredInfo: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 12,
+    paddingVertical: 16,
     alignItems: 'center',
-  },
-  deliveredText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  emptySubText: {
-    fontSize: 14,
+  acceptButtonDisabled: {
     opacity: 0.6,
-    textAlign: 'center',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  acceptButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  sectionHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    marginTop: 8,
+  },
+  sectionHeaderText: {
+    fontSize: 20,
+    fontWeight: '700',
   },
 });

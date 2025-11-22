@@ -15,6 +15,25 @@ export interface DeliveryBoy {
 }
 
 export interface DeliveryBoyProfile extends DeliveryBoy {
+  name?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  fullAddress?: string;
+  joinDate?: string;
+  vehicleType?: string;
+  vehicleNumber?: string;
+  vehicleModel?: string;
+  licenseNumber?: string;
+  licenseExpiry?: string;
+  bankAccount?: string;
+  bankName?: string;
+  ifscCode?: string;
+  accountHolder?: string;
+  totalEarnings?: number;
+  averageRating?: number;
+  completionRate?: number;
   license: {
     number: string;
     expiryDate: string;

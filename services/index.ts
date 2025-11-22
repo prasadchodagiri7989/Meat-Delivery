@@ -1,14 +1,15 @@
 import {
-    ApiResponse,
-    AuthResponse,
-    DeliveryBoy,
-    DeliveryBoyProfile,
-    DeliveryStats,
-    LocationRequest,
-    LoginRequest,
-    Order,
-    RegisterRequest,
+  ApiResponse,
+  AuthResponse,
+  DeliveryBoy,
+  DeliveryBoyProfile,
+  DeliveryStats,
+  LocationRequest,
+  LoginRequest,
+  Order,
+  RegisterRequest,
 } from '@/types';
+import { Platform } from 'react-native';
 import { apiClient } from './api-client';
 
 /**
@@ -123,7 +124,50 @@ export const orderService = {
   },
 
   async getOrderDetails(orderId: string): Promise<ApiResponse<Order>> {
-    return apiClient.get<Order>(`/orders/${orderId}`);
+    // Use the general orders API endpoint (not delivery-specific)
+    // This calls /api/orders/:id instead of /api/delivery/orders/:id
+    let baseUrl = 'http://localhost:5000';
+    
+    if (Platform.OS === 'android') {
+      baseUrl = 'http://10.0.2.2:5000';
+    } else if (Platform.OS === 'ios') {
+      baseUrl = 'http://localhost:5000';
+    }
+    
+    const token = apiClient.getToken();
+    console.log('🔍 Fetching order from:', `${baseUrl}/api/orders/${orderId}`);
+    console.log('🔑 Token available:', !!token);
+    
+    try {
+      // Make a direct fetch call to the general orders endpoint
+      const response = await fetch(`${baseUrl}/api/orders/${orderId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const data = await response.json();
+      console.log('📦 Order detail response:', { status: response.status, success: response.ok, data });
+      
+      if (!response.ok) {
+        return {
+          success: false,
+          message: data.message || 'Failed to fetch order details',
+          error: data.error,
+        };
+      }
+      
+      return data;
+    } catch (error: any) {
+      console.error('❌ Fetch order details error:', error);
+      return {
+        success: false,
+        message: error.message || 'Network error',
+        error: error.toString(),
+      };
+    }
   },
 };
 

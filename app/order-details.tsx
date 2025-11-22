@@ -1,9 +1,12 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { orderService } from '@/services';
+import { Order } from '@/types';
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, Linking, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 // Sample orders data for reference
 const allOrders = [
@@ -48,22 +51,71 @@ export default function OrderDetailsScreen() {
   const params = useLocalSearchParams();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  
+  const [order, setOrder] = useState<Order | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDelivered, setIsDelivered] = useState(false);
 
-  // Get order data from params
-  const orderId = Array.isArray(params.id) ? params.id[0] : params.id;
-  const order = allOrders.find(o => o.id === parseInt(orderId || '1'));
+  // Get order ID from params
+  const orderId = Array.isArray(params.orderId) ? params.orderId[0] : params.orderId;
+
+  // Fetch order details
+  useEffect(() => {
+    const fetchOrderDetails = async () => {
+      if (!orderId) {
+        setIsLoading(false);
+        return;
+      }
+      
+      try {
+        console.log('🔍 Fetching order details for:', orderId);
+        const response = await orderService.getOrderDetails(orderId);
+        console.log('📦 Order details response:', JSON.stringify(response, null, 2));
+        
+        if (response.success && response.data) {
+          setOrder(response.data);
+          // Check if order is already delivered
+          if (response.data.status === 'delivered') {
+            setIsDelivered(true);
+          }
+        } else {
+          Alert.alert('Error', 'Failed to load order details');
+        }
+      } catch (err: any) {
+        console.error('❌ Error fetching order:', err);
+        Alert.alert('Error', err.message || 'Failed to load order');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchOrderDetails();
+  }, [orderId]);
+
+  if (isLoading) {
+    return (
+      <ThemedView style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color={isDark ? '#fff' : '#000'} />
+        <ThemedText style={{ marginTop: 12 }}>Loading order details...</ThemedText>
+      </ThemedView>
+    );
+  }
 
   if (!order) {
     return (
       <ThemedView style={styles.container}>
         <ThemedText>Order not found</ThemedText>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <ThemedText>Go Back</ThemedText>
+        </TouchableOpacity>
       </ThemedView>
     );
   }
 
   const handleStartRide = async () => {
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${order.latitude},${order.longitude}&travelmode=driving`;
+    // Use delivery address if coordinates available, otherwise use address string
+    const address = `${order.deliveryAddress?.street || ''}, ${order.deliveryAddress?.city || ''}, ${order.deliveryAddress?.state || ''}`;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`;
     
     try {
       const canOpen = await Linking.canOpenURL(url);
@@ -78,7 +130,12 @@ export default function OrderDetailsScreen() {
   };
 
   const handleCallCustomer = () => {
-    const phoneUrl = `tel:${order.phone}`;
+    const phone = order.contactInfo?.phone || order.customer?.phone;
+    if (!phone) {
+      Alert.alert('Error', 'Phone number not available');
+      return;
+    }
+    const phoneUrl = `tel:${phone}`;
     Linking.openURL(phoneUrl).catch(() => {
       Alert.alert('Error', 'Could not make call');
     });
@@ -92,11 +149,24 @@ export default function OrderDetailsScreen() {
         { text: 'Cancel', onPress: () => {}, style: 'cancel' },
         {
           text: 'Confirm',
-          onPress: () => {
-            setIsDelivered(true);
-            Alert.alert('Success', 'Order marked as delivered!', [
-              { text: 'OK', onPress: () => router.back() },
-            ]);
+          onPress: async () => {
+            try {
+              const response = await orderService.markDelivered(
+                order._id,
+                'Order delivered successfully'
+              );
+              
+              if (response.success) {
+                setIsDelivered(true);
+                Alert.alert('Success', 'Order marked as delivered!', [
+                  { text: 'OK', onPress: () => router.back() },
+                ]);
+              } else {
+                Alert.alert('Error', response.message || 'Failed to mark as delivered');
+              }
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to mark as delivered');
+            }
           },
           style: 'default',
         },
@@ -125,9 +195,11 @@ export default function OrderDetailsScreen() {
           ]}
         >
           <ThemedText style={[styles.statusLabel, { color: '#2E7D32' }]}>
-            ⏳ In Progress
+            ⏳ {order.status || 'In Progress'}
           </ThemedText>
-          <ThemedText style={styles.statusTime}>{order.date} • {order.time}</ThemedText>
+          <ThemedText style={styles.statusTime}>
+            {order.createdAt ? new Date(order.createdAt).toLocaleString() : 'N/A'}
+          </ThemedText>
         </ThemedView>
 
         {/* Customer Information */}
@@ -138,14 +210,16 @@ export default function OrderDetailsScreen() {
 
           <View style={styles.infoRow}>
             <ThemedText style={styles.infoLabel}>Name</ThemedText>
-            <ThemedText style={styles.infoValue}>{order.customerName}</ThemedText>
+            <ThemedText style={styles.infoValue}>
+              {order.customer?.firstName} {order.customer?.lastName}
+            </ThemedText>
           </View>
 
           <View style={[styles.infoRow, styles.borderTop]}>
             <ThemedText style={styles.infoLabel}>Phone</ThemedText>
             <TouchableOpacity onPress={handleCallCustomer}>
               <ThemedText style={[styles.infoValue, { color: '#0a7ea4' }]}>
-                {order.phone} 📞
+                {order.contactInfo?.phone || order.customer?.phone} 📞
               </ThemedText>
             </TouchableOpacity>
           </View>
@@ -153,19 +227,33 @@ export default function OrderDetailsScreen() {
 
         {/* Delivery Address */}
         <ThemedView style={[styles.section, { backgroundColor: isDark ? '#1F2937' : '#F9FAFB' }]}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Delivery Address
-          </ThemedText>
+          <View style={styles.sectionHeaderRow}>
+            <ThemedText type="subtitle" style={styles.sectionTitle}>
+              Delivery Address
+            </ThemedText>
+            <TouchableOpacity 
+              style={[styles.copyButton, { backgroundColor: isDark ? '#374151' : '#E5E7EB' }]}
+              onPress={async () => {
+                const address = `${order.deliveryAddress?.street}, ${order.deliveryAddress?.city}, ${order.deliveryAddress?.state} ${order.deliveryAddress?.zipCode}`;
+                await Clipboard.setStringAsync(address);
+                Alert.alert('Copied!', 'Address copied to clipboard');
+              }}
+            >
+              <ThemedText style={styles.copyButtonText}>📋 Copy</ThemedText>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.addressBox}>
             <ThemedText style={styles.addressIcon}>📍</ThemedText>
-            <ThemedText style={styles.addressText}>{order.address}</ThemedText>
+            <ThemedText style={styles.addressText}>
+              {order.deliveryAddress?.street}, {order.deliveryAddress?.city}, {order.deliveryAddress?.state} {order.deliveryAddress?.zipCode}
+            </ThemedText>
           </View>
 
-          {order.instructions && (
+          {order.deliveryAddress?.landmark && (
             <View style={[styles.instructionsBox, { backgroundColor: isDark ? '#3A2E1E' : '#FFF3E0' }]}>
-              <ThemedText style={styles.instructionsLabel}>Special Instructions</ThemedText>
-              <ThemedText style={styles.instructionsText}>{order.instructions}</ThemedText>
+              <ThemedText style={styles.instructionsLabel}>Landmark</ThemedText>
+              <ThemedText style={styles.instructionsText}>{order.deliveryAddress.landmark}</ThemedText>
             </View>
           )}
         </ThemedView>
@@ -179,19 +267,38 @@ export default function OrderDetailsScreen() {
           <View style={styles.detailGrid}>
             <View style={styles.detailGridItem}>
               <ThemedText style={styles.detailGridLabel}>Items</ThemedText>
-              <ThemedText style={styles.detailGridValue}>{order.items}</ThemedText>
+              <ThemedText style={styles.detailGridValue}>{order.items?.length || 0}</ThemedText>
             </View>
             <View style={styles.detailGridItem}>
-              <ThemedText style={styles.detailGridLabel}>Distance</ThemedText>
-              <ThemedText style={styles.detailGridValue}>{order.distance} km</ThemedText>
+              <ThemedText style={styles.detailGridLabel}>Payment</ThemedText>
+              <ThemedText style={styles.detailGridValue}>
+                {order.paymentInfo?.method === 'cash-on-delivery' ? 'COD' : 'Paid'}
+              </ThemedText>
             </View>
             <View style={styles.detailGridItem}>
               <ThemedText style={styles.detailGridLabel}>Amount</ThemedText>
               <ThemedText style={[styles.detailGridValue, { color: '#10B981' }]}>
-                ₹{order.price}
+                ₹{order.pricing?.total || 0}
               </ThemedText>
             </View>
           </View>
+
+          {/* Item List */}
+          {order.items && order.items.length > 0 && (
+            <View style={{ marginTop: 16 }}>
+              <ThemedText style={[styles.sectionTitle, { fontSize: 14, marginBottom: 8 }]}>
+                Order Items:
+              </ThemedText>
+              {order.items.map((item: any, index: number) => (
+                <View key={index} style={[styles.infoRow, index > 0 && styles.borderTop]}>
+                  <ThemedText style={styles.infoLabel}>
+                    {item.product?.name} x {item.quantity}
+                  </ThemedText>
+                  <ThemedText style={styles.infoValue}>₹{item.subtotal}</ThemedText>
+                </View>
+              ))}
+            </View>
+          )}
         </ThemedView>
 
         {/* Action Buttons */}
@@ -230,6 +337,10 @@ export default function OrderDetailsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   scrollContent: {
     paddingHorizontal: 16,
@@ -344,6 +455,21 @@ const styles = StyleSheet.create({
   },
   detailGridValue: {
     fontSize: 16,
+    fontWeight: '600',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  copyButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  copyButtonText: {
+    fontSize: 13,
     fontWeight: '600',
   },
   buttonsSection: {

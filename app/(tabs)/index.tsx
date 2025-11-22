@@ -6,16 +6,16 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
-// Filter active orders only
-const activeOrders = orders.filter((o) => o.status === 'Active');
-
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const { user } = useAuth();
-  const { stats, assignedOrders, fetchStats, refreshAll } = useOrders();
+  const { stats, assignedOrders: rawAssignedOrders, fetchStats, refreshAll } = useOrders();
   const [refreshing, setRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Ensure assignedOrders is always an array
+  const assignedOrders = Array.isArray(rawAssignedOrders) ? rawAssignedOrders : [];
 
   // Fetch data on mount
   useEffect(() => {
@@ -24,8 +24,8 @@ export default function HomeScreen() {
         setIsLoading(true);
         await fetchStats();
         await refreshAll();
-      } catch (error) {
-        console.error('Error loading dashboard:', error);
+      } catch (err) {
+        console.error('Error loading dashboard:', err);
       } finally {
         setIsLoading(false);
       }
@@ -34,7 +34,7 @@ export default function HomeScreen() {
     if (user) {
       loadData();
     }
-  }, [user]);
+  }, [user, fetchStats, refreshAll]);
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -42,7 +42,8 @@ export default function HomeScreen() {
     try {
       await refreshAll();
       await fetchStats();
-    } catch (error) {
+    } catch (err) {
+      console.error('Refresh error:', err);
       Alert.alert('Error', 'Failed to refresh data');
     } finally {
       setRefreshing(false);
@@ -151,14 +152,14 @@ export default function HomeScreen() {
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle">Active Deliveries ({assignedOrders.length})</ThemedText>
 
-          {assignedOrders.slice(0, 3).map((delivery) => (
+          {Array.isArray(assignedOrders) && assignedOrders.slice(0, 3).map((delivery) => (
             <View key={delivery._id} style={styles.deliveryItem}>
               <View style={styles.deliveryInfo}>
                 <ThemedText style={styles.deliveryLocation}>
-                  📍 {delivery.deliveryAddress.street}
+                  📍 {String(delivery.deliveryAddress?.street || 'Address not available')}
                 </ThemedText>
                 <ThemedText style={styles.deliveryTime}>
-                  Order: {delivery.orderNumber}
+                  Order: {String(delivery.orderNumber || 'N/A')}
                 </ThemedText>
               </View>
               <ThemedView
@@ -189,7 +190,7 @@ export default function HomeScreen() {
                 >
                   {delivery.status === 'out-for-delivery'
                     ? '🚚 In Progress'
-                    : '✓ ' + delivery.status}
+                    : `✓ ${String(delivery.status || 'Unknown')}`}
                 </ThemedText>
               </ThemedView>
             </View>
@@ -266,6 +267,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 16,
     borderRadius: 12,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  metricLabel: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  metricValue: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  borderTop: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
   },
   deliveryItem: {
     flexDirection: 'row',

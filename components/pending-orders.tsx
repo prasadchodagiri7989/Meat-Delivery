@@ -68,7 +68,7 @@ export default function PendingOrdersScreen() {
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="title" style={styles.header}>
-        Available Orders ({pendingOrders.length})
+        Available Order ({pendingOrders.length})
       </ThemedText>
 
       {pendingOrders.map((order) => (
@@ -80,32 +80,32 @@ export default function PendingOrdersScreen() {
           ]}
         >
           <ThemedText type="subtitle" style={styles.orderNumber}>
-            Order #{order.orderNumber}
+            Order #{String(order.orderNumber || 'N/A')}
           </ThemedText>
 
           <View style={styles.orderInfo}>
             <ThemedText style={styles.label}>Customer:</ThemedText>
             <ThemedText style={styles.value}>
-              {order.customer.firstName} {order.customer.lastName}
+              {String(order.customer?.firstName || '')} {String(order.customer?.lastName || '')}
             </ThemedText>
           </View>
 
           <View style={styles.orderInfo}>
             <ThemedText style={styles.label}>Location:</ThemedText>
             <ThemedText style={styles.value}>
-              {order.deliveryAddress.street}, {order.deliveryAddress.city}
+              {String(order.deliveryAddress?.street || '')}, {String(order.deliveryAddress?.city || '')}
             </ThemedText>
           </View>
 
           <View style={styles.orderInfo}>
             <ThemedText style={styles.label}>Items:</ThemedText>
-            <ThemedText style={styles.value}>{order.items.length} item(s)</ThemedText>
+            <ThemedText style={styles.value}>{String(order.items?.length || 0)} item(s)</ThemedText>
           </View>
 
           <View style={styles.orderInfo}>
             <ThemedText style={styles.label}>Total:</ThemedText>
             <ThemedText style={[styles.value, { color: '#2E7D32', fontWeight: '600' }]}>
-              ₹{order.pricing.total}
+              ₹{Number(order.pricing?.total) || 0}
             </ThemedText>
           </View>
 

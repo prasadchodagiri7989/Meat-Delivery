@@ -3,10 +3,27 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 declare const window: any;
 
+// Get the appropriate API URL based on platform
+const getApiBaseUrl = () => {
+  // Production backend
+  return 'https://sejasfresh.cloud/api/delivery';
+  
+  // For local development, uncomment below:
+  // if (Platform.OS === 'android') {
+  //   return 'http://10.0.2.2:5000/api/delivery';
+  // } else if (Platform.OS === 'ios') {
+  //   return 'http://localhost:5000/api/delivery';
+  // } else {
+  //   return 'http://localhost:5000/api/delivery';
+  // }
+};
+
 const API_CONFIG = {
-  DELIVERY_BASE: 'http://localhost:5000/api/delivery',
+  DELIVERY_BASE: getApiBaseUrl(),
   TIMEOUT: 15000,
 };
+
+console.log('[API Config] Base URL:', API_CONFIG.DELIVERY_BASE);
 
 const STORAGE_KEY = 'delivery_boy_token';
 
@@ -82,6 +99,9 @@ class ApiClient {
 
     if (includeAuth && this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
+      console.log('[API Client] Including auth token in headers:', this.token.substring(0, 20) + '...');
+    } else if (includeAuth && !this.token) {
+      console.warn('[API Client] Auth required but no token available!');
     }
 
     return headers;

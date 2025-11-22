@@ -164,20 +164,20 @@ export default function MyOrdersScreen() {
             <View style={styles.section}>
               <ThemedText style={styles.sectionTitle}>Customer</ThemedText>
               <ThemedText style={styles.infoText}>
-                {order.customer.firstName} {order.customer.lastName}
+                {String(order.customer?.firstName || '')} {String(order.customer?.lastName || '')}
               </ThemedText>
-              <ThemedText style={styles.infoText}>{order.customer.phone}</ThemedText>
+              <ThemedText style={styles.infoText}>{String(order.customer?.phone || 'N/A')}</ThemedText>
             </View>
 
             {/* Delivery Address */}
             <View style={styles.section}>
               <ThemedText style={styles.sectionTitle}>Delivery Address</ThemedText>
               <ThemedText style={styles.infoText}>
-                {order.deliveryAddress.street}
+                {String(order.deliveryAddress?.street || '')}
               </ThemedText>
               <ThemedText style={styles.infoText}>
-                {order.deliveryAddress.city}, {order.deliveryAddress.state}{' '}
-                {order.deliveryAddress.zipCode}
+                {String(order.deliveryAddress?.city || '')}, {String(order.deliveryAddress?.state || '')}{' '}
+                {String(order.deliveryAddress?.zipCode || '')}
               </ThemedText>
             </View>
 

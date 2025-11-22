@@ -53,15 +53,29 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
     try {
       setError(null);
       setIsLoading(true);
+      console.log('[OrderContext] Fetching pending orders...');
 
       const response = await orderService.getPendingOrders();
+      console.log('[OrderContext] Pending orders response:', JSON.stringify(response, null, 2));
+      
       if (response.success && Array.isArray(response.data)) {
-        setPendingOrders(response.data);
+        console.log('[OrderContext] Pending orders received:', response.data.length, 'orders');
+        // Ensure all items are valid objects
+        const validOrders = response.data.filter(order => 
+          order && typeof order === 'object' && order._id
+        );
+        setPendingOrders(validOrders);
+      } else if (response.success && response.data && typeof response.data === 'object') {
+        // If data is a single object, wrap it in an array
+        console.warn('[OrderContext] Received single order object, wrapping in array');
+        setPendingOrders([response.data]);
       } else {
+        console.warn('[OrderContext] Failed to fetch pending orders:', response.message);
         setError(response.message || 'Failed to fetch pending orders');
         setPendingOrders([]);
       }
     } catch (err: any) {
+      console.error('[OrderContext] Error fetching pending orders:', err);
       setError(err.message || 'Failed to fetch pending orders');
       setPendingOrders([]);
     } finally {
@@ -73,15 +87,29 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
     try {
       setError(null);
       setIsLoading(true);
+      console.log('[OrderContext] Fetching assigned orders...');
 
       const response = await orderService.getAssignedOrders();
+      console.log('[OrderContext] Assigned orders response:', JSON.stringify(response, null, 2));
+      
       if (response.success && Array.isArray(response.data)) {
-        setAssignedOrders(response.data);
+        console.log('[OrderContext] Assigned orders received:', response.data.length, 'orders');
+        // Ensure all items are valid objects
+        const validOrders = response.data.filter(order => 
+          order && typeof order === 'object' && order._id
+        );
+        setAssignedOrders(validOrders);
+      } else if (response.success && response.data && typeof response.data === 'object') {
+        // If data is a single object, wrap it in an array
+        console.warn('[OrderContext] Received single order object, wrapping in array');
+        setAssignedOrders([response.data]);
       } else {
+        console.warn('[OrderContext] Failed to fetch assigned orders:', response.message);
         setError(response.message || 'Failed to fetch assigned orders');
         setAssignedOrders([]);
       }
     } catch (err: any) {
+      console.error('[OrderContext] Error fetching assigned orders:', err);
       setError(err.message || 'Failed to fetch assigned orders');
       setAssignedOrders([]);
     } finally {
@@ -186,14 +214,19 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
 
   const fetchStats = useCallback(async () => {
     try {
+      console.log('[OrderContext] Fetching stats...');
       const response = await profileService.getStats();
+      console.log('[OrderContext] Stats response:', JSON.stringify(response, null, 2));
+      
       if (response.success && response.data) {
+        console.log('[OrderContext] Stats data received:', response.data);
         setStats(response.data);
       } else {
-        console.warn('Failed to fetch stats:', response.message);
+        console.warn('[OrderContext] Failed to fetch stats:', response.message);
+        console.warn('[OrderContext] Full response:', response);
       }
     } catch (err) {
-      console.error('Failed to fetch stats:', err);
+      console.error('[OrderContext] Failed to fetch stats:', err);
     }
   }, []);
 
